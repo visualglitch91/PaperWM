@@ -43,9 +43,14 @@ var backgroundSettings = new Gio.Settings({
   schema_id: "org.gnome.desktop.background",
 });
 
-var borderWidth = 8;
+const scrollGap = prefs.horizontal_margin;
+const selectionGap = 19;
+const borderWidth = 3;
+
 // Mutter prevints windows from being placed further off the screen than 75 pixels.
 var stack_margin = 75;
+// Minimum margin
+var minimumMargin = () => Math.min(15, prefs.horizontal_margin);
 
 // Some features use this to determine if to sizes is considered equal. ie. `abs(w1 - w2) < sizeSlack`
 var sizeSlack = 30;
@@ -115,7 +120,7 @@ function init() {
 
    To transform a stage point to space coordinates: `space.actor.transform_stage_point(aX, aY)`
  */
-var Space = class Space extends Array {
+class Space extends Array {
   constructor(workspace, container, doInit) {
     super(0);
     this.workspace = workspace;
@@ -126,17 +131,17 @@ var Space = class Space extends Array {
     this._floating = [];
     this._populated = false;
 
-    let clip = new Clutter.Actor({ name: "clip" });
+    let clip = new Clutter.Actor();
     this.clip = clip;
-    let actor = new Clutter.Actor({ name: "space-actor" });
+    let actor = new Clutter.Actor();
 
     this._visible = true;
     this.hide(); // We keep the space actor hidden when inactive due to performance
 
     this.actor = actor;
-    let cloneClip = new Clutter.Actor({ name: "clone-clip" });
+    let cloneClip = new Clutter.Actor();
     this.cloneClip = cloneClip;
-    let cloneContainer = new St.Widget({ name: "clone-container" });
+    let cloneContainer = new St.Widget();
     this.cloneContainer = cloneContainer;
 
     // Pick up the same css as the top bar label
@@ -160,6 +165,7 @@ var Space = class Space extends Array {
       name: "selection",
       style_class: "paperwm-selection tile-preview",
     });
+
     this.selection = selection;
 
     clip.space = this;
@@ -171,7 +177,7 @@ var Space = class Space extends Array {
     actor.add_actor(cloneClip);
     cloneClip.add_actor(cloneContainer);
 
-    this.border = new St.Widget({ name: "border" });
+    this.border = new St.Widget();
     this.actor.add_actor(this.border);
     this.border.hide();
 
@@ -278,8 +284,17 @@ var Space = class Space extends Array {
     let workArea = Main.layoutManager.getWorkAreaForMonitor(this.monitor.index);
     workArea.x -= this.monitor.x;
     workArea.y -= this.monitor.y;
-    workArea.height -= prefs.vertical_margin + prefs.vertical_margin_bottom;
-    workArea.y += prefs.vertical_margin;
+
+    workArea.height =
+      workArea.y +
+      workArea.height -
+      prefs.vertical_margin -
+      prefs.vertical_margin_bottom;
+
+    workArea.y = prefs.vertical_margin;
+    workArea.width -= scrollGap * 2;
+    workArea.x += scrollGap;
+
     return workArea;
   }
 
@@ -451,10 +466,7 @@ var Space = class Space extends Array {
       } else {
         targetWidth = Math.max(...column.map((w) => w.get_frame_rect().width));
       }
-      targetWidth = Math.min(
-        targetWidth,
-        workArea.width - 2 * prefs.minimum_margin
-      );
+      targetWidth = Math.min(targetWidth, workArea.width - 2 * minimumMargin());
 
       let resultingWidth, relayout;
       let allocator = options.customAllocators && options.customAllocators[i];
@@ -1408,7 +1420,7 @@ box-shadow: 0px 0px 8px 0px rgba(0, 0, 0, .7);
     this.cloneContainer = null;
     let workspace = this.workspace;
   }
-};
+}
 Signals.addSignalMethods(Space.prototype);
 
 var StackPositions = {
@@ -2391,12 +2403,12 @@ function allocateClone(metaWindow) {
     let selection = metaWindow.clone.first_child;
     let vMax = metaWindow.maximized_vertically;
     let hMax = metaWindow.maximized_horizontally;
-    let protrusion = Math.round(prefs.window_gap / 2);
+    let protrusion = Math.round(selectionGap / 2);
     selection.x = hMax ? 0 : -protrusion;
     selection.y = vMax ? 0 : -protrusion;
     selection.set_size(
-      frame.width + (hMax ? 0 : prefs.window_gap),
-      frame.height + (vMax ? 0 : prefs.window_gap)
+      frame.width + (hMax ? 0 : selectionGap),
+      frame.height + (vMax ? 0 : selectionGap)
     );
   }
 }
@@ -2778,10 +2790,10 @@ function ensuredX(meta_window, space) {
   } else if (x + frame.width === max) {
     // When opening new windows at the end, in the background, we want to
     // show some minimup margin
-    x = max - prefs.minimum_margin - frame.width;
+    x = max - minimumMargin() - frame.width;
   } else if (x === min) {
     // Same for the start (though the case isn't as common)
-    x = min + prefs.minimum_margin;
+    x = min + minimumMargin();
   }
 
   return x;
@@ -3077,7 +3089,7 @@ function toggleMaximizeHorizontally(metaWindow) {
   let space = spaces.spaceOfWindow(metaWindow);
   let workArea = space.workArea();
   let frame = metaWindow.get_frame_rect();
-  let reqWidth = workArea.width - prefs.minimum_margin * 2;
+  let reqWidth = workArea.width - minimumMargin() * 2;
 
   // Some windows only resize in increments > 1px so we can't rely on a precise width
   // Hopefully this heuristic is good enough
@@ -3095,13 +3107,13 @@ function toggleMaximizeHorizontally(metaWindow) {
 
     metaWindow.unmaximizedRect = null;
   } else {
-    let x = workArea.x + space.monitor.x + prefs.minimum_margin;
+    let x = workArea.x + space.monitor.x + minimumMargin();
     metaWindow.unmaximizedRect = frame;
     metaWindow.move_resize_frame(
       true,
       x,
       frame.y,
-      workArea.width - prefs.minimum_margin * 2,
+      workArea.width - minimumMargin() * 2,
       frame.height
     );
   }
@@ -3242,13 +3254,9 @@ function cycleWindowWidth(metaWindow) {
   let targetX = frame.x;
 
   if (Scratch.isScratchWindow(metaWindow)) {
-    if (
-      targetX + targetWidth >
-      workArea.x + workArea.width - prefs.minimum_margin
-    ) {
+    if (targetX + targetWidth > workArea.x + workArea.width - minimumMargin()) {
       // Move the window so it remains fully visible
-      targetX =
-        workArea.x + workArea.width - prefs.minimum_margin - targetWidth;
+      targetX = workArea.x + workArea.width - minimumMargin() - targetWidth;
     }
   }
 
