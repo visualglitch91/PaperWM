@@ -290,6 +290,10 @@ var Space = class Space extends Array {
         workArea.y -= this.monitor.y;
         workArea.height -= prefs.vertical_margin + prefs.vertical_margin_bottom;
         workArea.y += prefs.vertical_margin;
+
+        workArea.width -= prefs.horizontal_margin * 2;
+        workArea.x += prefs.horizontal_margin;
+
         return workArea;
     }
 
@@ -2319,11 +2323,12 @@ function allocateClone(metaWindow) {
         let selection = metaWindow.clone.first_child;
         let vMax = metaWindow.maximized_vertically;
         let hMax = metaWindow.maximized_horizontally;
-        let protrusion = Math.round(prefs.window_gap/2);
+        let selectionGap = 20;
+        let protrusion = Math.round(selectionGap/2);
         selection.x = hMax ? 0 : - protrusion;
         selection.y = vMax ? 0 : - protrusion;
-        selection.set_size(frame.width + (hMax ? 0 : prefs.window_gap),
-                           frame.height + (vMax ? 0 : prefs.window_gap));
+        selection.set_size(frame.width + (hMax ? 0 : selectionGap),
+                           frame.height + (vMax ? 0 : selectionGap));
     }
 }
 
